@@ -1,0 +1,43 @@
+name: projet_mobile
+description: "Travel Platform - application mobile Flutter + SQLite (5SAE3, ESPRIT)."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Base SQLite locale (cours chapitre 6)
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  # Session utilisateur (cours chapitre 6)
+  shared_preferences: ^2.3.2
+  # API REST (cours chapitre 7)
+  http: ^1.2.2
+  # Hachage SHA-256 des mots de passe
+  crypto: ^3.0.5
+  # SQLite dans le navigateur (version web pour tester sans emulateur)
+  sqflite_common_ffi_web: any
+  # Police du UI Kit (Plus Jakarta Sans)
+  google_fonts: ^6.2.1
+  # Carte OpenStreetMap (choix de la destination)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  # Photo ou logo du profil transporteur (module transporteur)
+  image_picker: ^1.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  # Tests SQLite sur PC, sans emulateur
+  sqflite_common_ffi: ^2.3.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
