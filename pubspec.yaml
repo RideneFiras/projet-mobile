@@ -27,6 +27,8 @@ dependencies:
   # Carte OpenStreetMap (choix de la destination)
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  # Photo ou logo du profil transporteur (module transporteur)
+  image_picker: ^1.1.2
   # Dossier où enregistrer le contrat PDF de location (déjà présent dans pubspec.lock :
   # dépendance de google_fonts ; déclaré ici car le module location l'utilise directement)
   path_provider: ^2.1.4

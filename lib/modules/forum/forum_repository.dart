@@ -112,7 +112,7 @@ class ForumRepository {
         WHEN 'hebergement' THEN
           (SELECT h.nom FROM hebergement h WHERE h.id = a.cible_id)
         WHEN 'transport' THEN
-          (SELECT t.depart || ' → ' || t.arrivee FROM reservation_transport t WHERE t.id = a.cible_id)
+          (SELECT t.ville_depart || ' → ' || t.destination FROM trajet_transport t WHERE t.id = a.cible_id)
       END AS libelle_cible
     FROM avis a
     JOIN utilisateur u ON u.id = a.auteur_id
@@ -162,14 +162,14 @@ class ForumRepository {
         final rows = await db.query('hebergement', orderBy: 'nom COLLATE NOCASE');
         return [for (final r in rows) (r['id'] as int, r['nom'] as String)];
       case CibleAvis.transport:
-        final rows = await db.query('reservation_transport',
-            columns: ['id', 'depart', 'arrivee', 'date_depart'],
+        final rows = await db.query('trajet_transport',
+            columns: ['id', 'ville_depart', 'destination', 'date_depart'],
             orderBy: 'date_depart, id');
         return [
           for (final r in rows)
             (
               r['id'] as int,
-              '${r['depart']} → ${r['arrivee']} (${r['date_depart']})',
+              '${r['ville_depart']} → ${r['destination']} (${r['date_depart']})',
             ),
         ];
     }

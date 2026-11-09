@@ -1,270 +1,231 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/travel_button.dart';
-import '../../../core/widgets/travel_field.dart';
-import '../../user/user_repository.dart';
-import '../../user/utilisateur.dart';
+import '../../../core/utils/dates.dart';
+import '../../../core/widgets/ui_kit.dart';
 import '../models/commande_transport.dart';
 import '../transport_format.dart';
-import '../transport_ia.dart';
 import '../transport_repository.dart';
 import '../transport_widgets.dart';
 
-/// Création ou modification d'une commande client (UI Kit : « Nouvelle commande »).
-/// Le client peut décrire la commande en une phrase : l'assistant remplit les champs,
-/// et il reste toujours possible de les saisir à la main.
+/// Demande de transport du voyageur : création, ou modification tant qu'elle est en attente.
 class CommandeFormScreen extends StatefulWidget {
-  /// Commande à modifier ; null pour une nouvelle commande.
   final CommandeTransport? commande;
+  final String? departInitial;
+  final String? arriveeInitiale;
+  final DateTime? dateInitiale;
 
-  const CommandeFormScreen({super.key, this.commande});
+  const CommandeFormScreen({
+    super.key,
+    this.commande,
+    this.departInitial,
+    this.arriveeInitiale,
+    this.dateInitiale,
+  });
 
   @override
   State<CommandeFormScreen> createState() => _CommandeFormScreenState();
 }
 
 class _CommandeFormScreenState extends State<CommandeFormScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _texteLibre = TextEditingController();
-  late final _depart = TextEditingController(text: widget.commande?.depart);
-  late final _arrivee = TextEditingController(text: widget.commande?.arrivee);
-  late final _budget = TextEditingController(
-      text: widget.commande?.budget.toStringAsFixed(2));
-  late final _description =
-      TextEditingController(text: widget.commande?.description);
+  final _cle = GlobalKey<FormState>();
   final _repo = TransportRepository();
-  final _utilisateur = UserRepository().utilisateurConnecte();
-
-  late DateTime? _date = widget.commande?.dateSouhaitee;
+  final _depart = TextEditingController();
+  final _arrivee = TextEditingController();
+  final _heure = TextEditingController();
+  final _passagers = TextEditingController();
+  final _budget = TextEditingController();
+  final _commentaire = TextEditingController();
+  DateTime? _jour;
   String? _erreurDate;
-  SourceIa? _sourceIa;
-  bool _chargement = false;
-  bool _iaEnCours = false;
+  int? _utilisateurId;
+  bool _charge = false;
+  bool _occupe = false;
 
-  bool get _modification => widget.commande != null;
+  @override
+  void initState() {
+    super.initState();
+    final c = widget.commande;
+    final date = c?.dateVoyage ?? widget.dateInitiale;
+    _depart.text = c?.depart ?? widget.departInitial ?? '';
+    _arrivee.text = c?.arrivee ?? widget.arriveeInitiale ?? '';
+    _jour = date == null ? null : dateJour(date);
+    _heure.text = date == null ? '09:00' : TransportFormat.heure(date);
+    _passagers.text = '${c?.nombrePassagers ?? 1}';
+    _budget.text =
+        c == null || c.prixPropose == 0 ? '' : c.prixPropose.toStringAsFixed(2);
+    _commentaire.text = c?.commentaire ?? '';
+    _chargerUtilisateur();
+  }
 
   @override
   void dispose() {
-    for (final c in [_texteLibre, _depart, _arrivee, _budget, _description]) {
+    for (final c in [
+      _depart,
+      _arrivee,
+      _heure,
+      _passagers,
+      _budget,
+      _commentaire,
+    ]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  Future<void> _interpreter() async {
-    FocusScope.of(context).unfocus();
-    final texte = _texteLibre.text.trim();
-    if (texte.isEmpty) {
-      montrerMessage(context, 'Décrivez d\'abord la commande en une phrase');
-      return;
-    }
-    setState(() => _iaEnCours = true);
-    final r = await TransportIa.interpreterCommande(texte);
+  Future<void> _chargerUtilisateur() async {
+    final u = await utilisateurAutorise();
     if (!mounted) return;
     setState(() {
-      _iaEnCours = false;
-      _sourceIa = r.source;
-      if (r.depart != null) _depart.text = r.depart!;
-      if (r.arrivee != null) _arrivee.text = r.arrivee!;
-      if (r.date != null) {
-        _date = DateTime(r.date!.year, r.date!.month, r.date!.day);
-        _erreurDate = null;
-      }
-      if (r.budget != null) _budget.text = r.budget!.toStringAsFixed(2);
-      _description.text = texte;
+      _utilisateurId = u?.id;
+      _charge = true;
     });
-    if (r.depart == null || r.arrivee == null) {
-      montrerMessage(context,
-          'Trajet non reconnu : complétez les villes à la main');
-    }
   }
 
   Future<void> _enregistrer() async {
-    FocusScope.of(context).unfocus();
-    final dateChangee = _date != widget.commande?.dateSouhaitee;
-    setState(() => _erreurDate =
-        (!_modification || dateChangee) ? TransportFormat.validerDateFuture(_date) : null);
-    if (!_formKey.currentState!.validate() || _erreurDate != null) return;
-
-    final u = await _utilisateur;
-    if (u?.id == null || !mounted) return;
-    setState(() => _chargement = true);
-
-    final centimes = TransportFormat.parserMontant(_budget.text) ?? 0;
-    final commande = CommandeTransport(
-      id: widget.commande?.id,
-      clientId: u!.id!,
-      depart: _depart.text,
-      arrivee: _arrivee.text,
-      dateSouhaitee: _date!,
-      budget: TransportFormat.depuisCentimes(centimes),
-      description: _description.text,
-      creeLe: widget.commande?.creeLe ?? DateTime.now(),
-    );
-
-    final bool ok;
-    if (_modification) {
-      ok = await _repo.modifierCommande(commande, u.id!);
-    } else {
-      await _repo.creerCommande(commande);
-      ok = true;
-    }
-    if (!mounted) return;
-    setState(() => _chargement = false);
-    if (!ok) {
-      montrerMessage(context, 'Cette commande ne peut plus être modifiée');
+    final uid = _utilisateurId;
+    final erreurDate = TransportFormat.validerDateFuture(_jour);
+    setState(() => _erreurDate = erreurDate);
+    if (uid == null || erreurDate != null || !_cle.currentState!.validate()) return;
+    final dateVoyage = TransportFormat.combiner(_jour, _heure.text);
+    final passagers = TransportFormat.parserEntier(_passagers.text);
+    final budgetTexte = _budget.text.trim();
+    final budget = budgetTexte.isEmpty ? 0 : TransportFormat.parserMontant(budgetTexte);
+    if (dateVoyage == null || passagers == null || budget == null) return;
+    if (dateVoyage.isBefore(DateTime.now())) {
+      afficherMessage(context, "L'heure de départ est déjà passée", erreur: true);
       return;
     }
-    montrerMessage(context,
-        _modification ? 'Commande mise à jour' : 'Commande publiée');
+    final commande = CommandeTransport(
+      id: widget.commande?.id,
+      reference: widget.commande?.reference ?? '',
+      voyageurId: uid,
+      depart: _depart.text,
+      arrivee: _arrivee.text,
+      dateVoyage: dateVoyage,
+      nombrePassagers: passagers,
+      prixPropose: TransportFormat.depuisCentimes(budget),
+      commentaire: _commentaire.text,
+      creeLe: widget.commande?.creeLe ?? DateTime.now(),
+    );
+    setState(() => _occupe = true);
+    final String? erreur;
+    final String message;
+    if (widget.commande == null) {
+      final r = await _repo.creerCommande(commande);
+      erreur = null;
+      message = r.propositions == 0
+          ? "Demande enregistrée : aucun transporteur compatible pour l'instant."
+          : 'Demande envoyée à ${r.propositions} transporteur(s).';
+    } else {
+      erreur = await _repo.modifierCommande(commande, uid);
+      message = 'Demande modifiée et relancée auprès des transporteurs.';
+    }
+    if (!mounted) return;
+    setState(() => _occupe = false);
+    if (erreur != null) {
+      afficherMessage(context, erreur, erreur: true);
+      return;
+    }
+    afficherMessage(context, message);
     Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
-    return EcranTransport(
-      titre: _modification ? 'Modifier la commande' : 'Nouvelle commande',
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!_modification) ...[
-                _boiteAssistant(),
-                const SizedBox(height: 20),
-              ],
-              const Text('Trajet',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              TravelField(
-                label: "Ville d'achat",
-                hint: 'Tunis',
-                icone: Icons.storefront_outlined,
-                controller: _depart,
-                validator: (v) =>
-                    TransportFormat.validerVille(v, champ: "La ville d'achat"),
-              ),
-              const SizedBox(height: 14),
-              TravelField(
-                label: 'Ville de livraison',
-                hint: 'Sfax',
-                icone: Icons.place_outlined,
-                controller: _arrivee,
-                validator: (v) =>
-                    TransportFormat.validerTrajet(_depart.text, v) ??
-                    TransportFormat.validerVille(v,
-                        champ: 'La ville de livraison'),
-              ),
-              const SizedBox(height: 14),
-              ChampDate(
-                label: 'Date souhaitée',
-                valeur: _date,
-                erreur: _erreurDate,
-                premiereDate: DateTime.now(),
-                onChoisie: (d) => setState(() {
-                  _date = d;
-                  _erreurDate = null;
-                }),
-              ),
-              const SizedBox(height: 24),
-              const Text('Budget',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              TravelField(
-                label: 'Budget (DT)',
-                hint: '50.00',
-                icone: Icons.payments_outlined,
-                controller: _budget,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) => TransportFormat.validerMontant(v),
-              ),
-              const SizedBox(height: 14),
-              TravelField(
-                label: 'Détails (facultatif)',
-                hint: 'Colis, taille, contraintes…',
-                icone: Icons.notes_outlined,
-                controller: _description,
-                textInputAction: TextInputAction.done,
-              ),
-              const SizedBox(height: 28),
-              TravelButton(
-                texte: _modification ? 'Enregistrer' : 'Publier la commande',
-                chargement: _chargement,
-                onPressed: _enregistrer,
-              ),
-            ],
-          ),
+    final modification = widget.commande != null;
+    final titre = modification ? 'Modifier la demande' : 'Nouvelle demande';
+    if (!_charge) {
+      return EcranModule(
+        titre: titre,
+        corps: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_utilisateurId == null) {
+      return EcranModule(
+        titre: titre,
+        corps: const EtatVideModule(
+          icone: Icons.lock_outline,
+          titre: 'Connexion requise',
+          message: 'Connectez-vous pour envoyer une demande de transport.',
         ),
-      ),
-    );
-  }
-
-  /// Zone « décrire la commande » : l'assistant pré-remplit le formulaire.
-  Widget _boiteAssistant() {
-    return CarteTransport(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.auto_awesome, color: AppColors.orangeText, size: 20),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text('Décrire la commande',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Ex : « De Tunis à Sfax demain, budget 50 DT, colis fragile »',
-            style: TextStyle(color: AppColors.grey, fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _texteLibre,
-            maxLines: 2,
-            decoration: InputDecoration(
-              hintText: 'Votre phrase…',
-              filled: true,
-              fillColor: AppColors.background,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+      );
+    }
+    return EcranModule(
+      titre: titre,
+      corps: Form(
+        key: _cle,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
+            ChampTexte(
+              controller: _depart,
+              label: 'Ville de départ',
+              icone: Icons.trip_origin,
+              capitalisation: TextCapitalization.words,
+              validateur: (v) => TransportFormat.validerVille(v, champ: 'La ville de départ'),
             ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.teal,
-                side: const BorderSide(color: AppColors.teal),
-                shape: const StadiumBorder(),
-              ),
-              onPressed: _iaEnCours ? null : _interpreter,
-              icon: _iaEnCours
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.auto_awesome),
-              label: const Text('Remplir le formulaire',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _arrivee,
+              label: "Ville d'arrivée",
+              icone: Icons.flag_outlined,
+              capitalisation: TextCapitalization.words,
+              validateur: (v) =>
+                  TransportFormat.validerVille(v, champ: "La ville d'arrivée") ??
+                  TransportFormat.validerTrajet(_depart.text, v),
             ),
-          ),
-          if (_sourceIa != null) ...[
-            const SizedBox(height: 10),
-            BandeauSource(source: _sourceIa!),
+            const SizedBox(height: 14),
+            ChampDate(
+              label: 'Date du voyage',
+              valeur: _jour,
+              erreur: _erreurDate,
+              premiereDate: DateTime.now(),
+              onChoisie: (d) => setState(() {
+                _jour = d;
+                _erreurDate = null;
+              }),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _heure,
+              label: 'Heure de départ (HH:mm)',
+              icone: Icons.schedule,
+              clavier: TextInputType.datetime,
+              validateur: TransportFormat.validerHeure,
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _passagers,
+              label: 'Nombre de passagers',
+              icone: Icons.group_outlined,
+              clavier: TextInputType.number,
+              validateur: (v) =>
+                  TransportFormat.validerEntier(v, champ: 'Le nombre de passagers', max: 20),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _budget,
+              label: 'Budget par personne (DT, facultatif)',
+              icone: Icons.payments_outlined,
+              clavier: TextInputType.numberWithOptions(decimal: true),
+              validateur: (v) => TransportFormat.validerMontant(v, obligatoire: false),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _commentaire,
+              label: 'Commentaire (facultatif)',
+              icone: Icons.notes_outlined,
+              lignes: 3,
+            ),
+            const SizedBox(height: 24),
+            BoutonPrincipal(
+              libelle: modification ? 'Enregistrer les modifications' : 'Envoyer la demande',
+              icone: Icons.send_outlined,
+              onPressed: _occupe ? null : _enregistrer,
+            ),
           ],
-        ],
+        ),
       ),
     );
   }

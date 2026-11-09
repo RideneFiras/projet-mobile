@@ -19,10 +19,10 @@ class DashboardRepository {
       case Role.client:
         return {
           'ouvertes': await _compte(db,
-              "SELECT COUNT(*) FROM commande_transport WHERE client_id = ? AND statut = 'ouverte'",
+              "SELECT COUNT(*) FROM commande_transport WHERE voyageur_id = ? AND statut = 'EN_ATTENTE'",
               [id]),
           'acceptees': await _compte(db,
-              "SELECT COUNT(*) FROM commande_transport WHERE client_id = ? AND statut = 'acceptee'",
+              "SELECT COUNT(*) FROM commande_transport WHERE voyageur_id = ? AND statut = 'ACCEPTEE'",
               [id]),
         };
       case Role.traveller:
@@ -31,7 +31,11 @@ class DashboardRepository {
               "SELECT COUNT(*) FROM voyage WHERE utilisateur_id = ? AND date_fin >= ? AND statut <> 'annule'",
               [id, aujourdhui]),
           'propositions': await _compte(db,
-              "SELECT COUNT(*) FROM mise_en_relation WHERE voyageur_id = ? AND statut = 'proposee'",
+              '''
+              SELECT COUNT(*) FROM mise_en_relation m
+                JOIN commande_transport c ON c.id = m.commande_id
+               WHERE c.voyageur_id = ? AND m.statut = 'proposee'
+              ''',
               [id]),
           'reservations': await _compte(db, '''
               SELECT (SELECT COUNT(*) FROM location_vehicule l
@@ -43,12 +47,20 @@ class DashboardRepository {
       case Role.transporter:
         return {
           'ouvertes': await _compte(db,
-              "SELECT COUNT(*) FROM commande_transport WHERE statut = 'ouverte'", const []),
+              "SELECT COUNT(*) FROM commande_transport WHERE statut = 'EN_ATTENTE'", const []),
           'propositions': await _compte(db,
-              "SELECT COUNT(*) FROM mise_en_relation WHERE auteur_id = ? AND statut = 'proposee'",
+              '''
+              SELECT COUNT(*) FROM mise_en_relation m
+                JOIN transporteur t ON t.id = m.transporteur_id
+               WHERE t.utilisateur_id = ? AND m.statut = 'proposee'
+              ''',
               [id]),
           'acceptees': await _compte(db,
-              "SELECT COUNT(*) FROM mise_en_relation WHERE auteur_id = ? AND statut = 'acceptee'",
+              '''
+              SELECT COUNT(*) FROM mise_en_relation m
+                JOIN transporteur t ON t.id = m.transporteur_id
+               WHERE t.utilisateur_id = ? AND m.statut = 'acceptee'
+              ''',
               [id]),
         };
       case Role.admin:

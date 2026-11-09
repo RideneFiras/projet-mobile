@@ -13,6 +13,7 @@ import '../../modules/transporteur/screens/commandes_ouvertes_screen.dart';
 import '../../modules/transporteur/screens/mes_commandes_screen.dart';
 import '../../modules/transporteur/screens/relations_screen.dart';
 import '../../modules/transporteur/screens/reservations_screen.dart';
+import '../../modules/transporteur/screens/transporteurs_screen.dart';
 import '../../modules/transporteur/screens/voyageur_screen.dart';
 import '../../modules/transporteur/transport_routes.dart';
 import '../../modules/user/admin_routes.dart';
@@ -53,6 +54,7 @@ class AppRoutes {
         TransportRoutes.relations: (_) => const RelationsScreen(),
         TransportRoutes.reservations: (_) => const ReservationsScreen(),
         TransportRoutes.voyageur: (_) => const VoyageurScreen(),
+        TransportRoutes.transporteurs: (_) => const TransporteursScreen(),
 
         // Module voyage (Mouhamed Dhia Dridi)
         VoyageRoutes.liste: (_) => const VoyagesScreen(),

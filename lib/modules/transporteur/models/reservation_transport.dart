@@ -1,68 +1,93 @@
-/// Statut d'un trajet proposé par un transporteur (colonne "statut").
-enum StatutTrajet {
-  enAttente('en_attente', 'En attente'),
+/// Statut d'une réservation confirmée (colonne "statut").
+enum StatutReservation {
   confirmee('confirmee', 'Confirmée'),
+  priseEnCharge('prise_en_charge', 'Prise en charge'),
   annulee('annulee', 'Annulée');
 
-  const StatutTrajet(this.valeur, this.libelle);
+  const StatutReservation(this.valeur, this.libelle);
   final String valeur;
   final String libelle;
 
-  static StatutTrajet depuis(String v) =>
-      StatutTrajet.values.firstWhere((s) => s.valeur == v,
-          orElse: () => StatutTrajet.enAttente);
+  static StatutReservation depuis(String v) =>
+      StatutReservation.values.firstWhere((s) => s.valeur == v,
+          orElse: () => StatutReservation.confirmee);
 }
 
-/// Trajet proposé par un transporteur (table "reservation_transport").
-/// [dateDepart] est stockée au format ISO "yyyy-MM-dd".
+/// Réservation confirmée (table "reservation_transport"). Elle n'existe qu'après
+/// l'acceptation d'une proposition. Les champs de jointure viennent du trajet,
+/// du voyageur et du transporteur.
 class ReservationTransport {
   final int? id;
-  final String depart;
-  final String arrivee;
+  final int trajetId;
+  final int voyageurId;
+  final int? commandeId;
+  final int nombrePlaces;
+  final StatutReservation statut;
+  final String motifAnnulation;
+
+  final DateTime creeLe;
+
+  final String nomVoyageur;
+  final String telephoneVoyageur;
+  final String villeDepart;
+  final String destination;
   final DateTime dateDepart;
-  final double prix;
-  final StatutTrajet statut;
-  final int? transporteurId;
-  final String? nomTransporteur;
-  final int? voyageId;
+  final double prixParPersonne;
+  final String nomTransporteur;
+  final String telephoneTransporteur;
 
   const ReservationTransport({
     this.id,
-    required this.depart,
-    required this.arrivee,
+    required this.trajetId,
+    required this.voyageurId,
+    this.commandeId,
+    required this.nombrePlaces,
+    this.statut = StatutReservation.confirmee,
+    this.motifAnnulation = '',
+    required this.creeLe,
+    this.nomVoyageur = '',
+    this.telephoneVoyageur = '',
+    this.villeDepart = '',
+    this.destination = '',
     required this.dateDepart,
-    required this.prix,
-    this.statut = StatutTrajet.enAttente,
-    this.transporteurId,
-    this.nomTransporteur,
-    this.voyageId,
+    this.prixParPersonne = 0,
+    this.nomTransporteur = '',
+    this.telephoneTransporteur = '',
   });
+
+  bool get active => statut != StatutReservation.annulee;
 
   factory ReservationTransport.fromMap(Map<String, dynamic> m) =>
       ReservationTransport(
         id: m['id'] as int?,
-        depart: m['depart'] as String,
-        arrivee: m['arrivee'] as String,
+        trajetId: m['trajet_id'] as int,
+        voyageurId: m['voyageur_id'] as int,
+        commandeId: m['commande_id'] as int?,
+        nombrePlaces: m['nombre_places'] as int,
+        statut: StatutReservation.depuis(m['statut'] as String),
+        motifAnnulation: (m['motif_annulation'] as String?) ?? '',
+        creeLe: DateTime.parse(m['cree_le'] as String),
+        nomVoyageur: (m['nom_voyageur'] as String?) ?? '',
+        telephoneVoyageur: (m['telephone_voyageur'] as String?) ?? '',
+        villeDepart: (m['ville_depart'] as String?) ?? '',
+        destination: (m['destination'] as String?) ?? '',
         dateDepart: DateTime.parse(m['date_depart'] as String),
-        prix: (m['prix'] as num).toDouble(),
-        statut: StatutTrajet.depuis(m['statut'] as String),
-        transporteurId: m['transporteur_id'] as int?,
-        nomTransporteur: m['nom_transporteur'] as String?,
-        voyageId: m['voyage_id'] as int?,
+        prixParPersonne: ((m['prix_par_personne'] as num?) ?? 0).toDouble(),
+        nomTransporteur: (m['nom_transporteur'] as String?) ?? '',
+        telephoneTransporteur: (m['telephone_transporteur'] as String?) ?? '',
       );
+}
 
-  Map<String, dynamic> toMap() => {
-        'depart': depart.trim(),
-        'arrivee': arrivee.trim(),
-        'date_depart': dateIso(dateDepart),
-        'prix': prix,
-        'statut': statut.valeur,
-        'transporteur_id': transporteurId,
-        'voyage_id': voyageId,
-      };
+/// Ligne de l'historique d'une réservation (table "historique_reservation").
+class EvenementReservation {
+  final String evenement;
+  final DateTime creeLe;
 
-  static String dateIso(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
+  const EvenementReservation({required this.evenement, required this.creeLe});
+
+  factory EvenementReservation.fromMap(Map<String, dynamic> m) =>
+      EvenementReservation(
+        evenement: m['evenement'] as String,
+        creeLe: DateTime.parse(m['cree_le'] as String),
+      );
 }

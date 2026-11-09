@@ -1,36 +1,34 @@
 /**
- * Serveur applicatif des fonctions IA du module transporteur.
+ * Serveur applicatif du module transporteur : itinéraire d'un trajet.
  *
  * Routes (préfixe /api, comme ApiService.baseUrl de l'application) :
- *   POST /api/transport/interpreter-commande
- *   POST /api/transport/classer-voyageurs
- *   POST /api/transport/resumer-trajet
+ *   POST /api/transport/itineraire   itinéraire routier : OpenRouteService si clé, sinon estimation
+ *   GET  /api/transport/sante        état du serveur, sans afficher de secret
  *
  * Variables d'environnement :
- *   ANTHROPIC_API_KEY  obligatoire pour appeler le modèle (sinon 503, l'application
- *                      bascule sur ses réponses locales)
- *   PORT               défaut 3000
- *   HOST               défaut 127.0.0.1 (émulateur Android : 10.0.2.2 atteint ce poste).
- *                      Mettre 0.0.0.0 seulement pour un téléphone réel sur le même réseau.
- *   ANTHROPIC_BASE_URL facultatif, pour tester contre un faux service
+ *   OPENROUTESERVICE_API_KEY  facultative : itinéraires réels. Sans elle, estimation.
+ *   OPENROUTESERVICE_URL      facultative : base de l'API OpenRouteService (migration du service)
+ *   PORT                      défaut 3000
+ *   HOST                      défaut 127.0.0.1 (émulateur Android : 10.0.2.2 atteint ce poste).
+ *                             Mettre 0.0.0.0 seulement pour un téléphone réel sur le même réseau.
  */
 import http from 'node:http';
+import { dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { cleApi, ErreurUpstream } from './anthropic.js';
 import {
-  classerVoyageurs,
-  ErreurSortie,
+  CacheTemporaire,
+  ErreurServiceExterne,
   ErreurValidation,
-  interpreterCommande,
-  resumerTrajet,
-} from './transport_ai.js';
+  itineraire,
+  orsCleApi,
+  orsUrlApi,
+} from './itineraire.js';
 
 const LIMITE_CORPS = 32 * 1024;
 
 const ROUTES = new Map([
-  ['/api/transport/interpreter-commande', interpreterCommande],
-  ['/api/transport/classer-voyageurs', classerVoyageurs],
-  ['/api/transport/resumer-trajet', resumerTrajet],
+  ['/api/transport/itineraire', itineraire],
 ]);
 
 class ErreurHttp extends Error {
@@ -67,25 +65,34 @@ function lireCorps(req) {
 
 async function reponsePour(req, chemin, options) {
   try {
+    if (chemin === '/api/transport/sante') {
+      if (req.method !== 'GET') {
+        return { code: 405, corps: { erreur: 'Méthode non autorisée' }, entetes: { Allow: 'GET' } };
+      }
+      return {
+        code: 200,
+        corps: { statut: 'ok', openrouteservice: Boolean(options.orsCle) },
+      };
+    }
     const action = ROUTES.get(chemin);
     if (!action) return { code: 404, corps: { erreur: 'Route inconnue' } };
     if (req.method !== 'POST') {
       return { code: 405, corps: { erreur: 'Méthode non autorisée' }, entetes: { Allow: 'POST' } };
     }
     const corps = await lireCorps(req);
-    if (!options.cle) {
-      return { code: 503, corps: { erreur: 'Assistant IA non configuré (ANTHROPIC_API_KEY absente)' } };
-    }
     return { code: 200, corps: await action(corps, options) };
   } catch (e) {
     if (e instanceof ErreurHttp) return { code: e.code, corps: { erreur: e.message } };
     if (e instanceof ErreurValidation) return { code: 400, corps: { erreur: e.message } };
-    if (e instanceof ErreurSortie || e instanceof ErreurUpstream) {
-      // Le message ne contient ni clé ni texte du modèle : seulement le motif.
-      console.error(`[assistant] ${e.message}`);
-      return { code: 502, corps: { erreur: 'Réponse de l’assistant indisponible ou invalide' } };
+    if (e instanceof ErreurServiceExterne) {
+      // Détail gardé dans le journal du serveur ; l'application reçoit un message neutre.
+      console.error(`[externe] ${e.message}`);
+      return {
+        code: 503,
+        corps: { erreur: 'Service externe indisponible pour le moment. Réessayez dans un instant.' },
+      };
     }
-    console.error('[assistant] erreur inattendue :', e?.message ?? e);
+    console.error('[serveur] erreur inattendue :', e?.message ?? e);
     return { code: 500, corps: { erreur: 'Erreur interne' } };
   }
 }
@@ -102,10 +109,15 @@ function envoyer(res, code, corps, entetes = {}) {
 
 /**
  * Crée le serveur HTTP. Les options servent aux tests : clé, URL de base, fetch.
- * @param {{cle?: string|null, base?: string, fetchImpl?: typeof fetch}} [opts]
+ * @param {{fetchImpl?: typeof fetch, orsCle?: string|null, orsBase?: string, cache?: CacheTemporaire}} [opts]
  */
-export function creerServeur({ cle = cleApi(), base, fetchImpl } = {}) {
-  const options = { cle, base, fetchImpl };
+export function creerServeur({
+  fetchImpl,
+  orsCle = orsCleApi(),
+  orsBase = orsUrlApi(),
+  cache = new CacheTemporaire(),
+} = {}) {
+  const options = { fetchImpl, orsCle, orsBase, cache };
   return http.createServer(async (req, res) => {
     const debut = Date.now();
     const chemin = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -115,16 +127,55 @@ export function creerServeur({ cle = cleApi(), base, fetchImpl } = {}) {
   });
 }
 
-// Démarrage uniquement si ce fichier est lancé directement (node index.js).
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Démarrage seulement si ce fichier est le point d'entrée : `node index.js`, `npm start`
+// ou `node .` dans le dossier server. Importé par les tests, il ne lance rien.
+const fichierCourant = fileURLToPath(import.meta.url);
+const entree = process.argv[1] ? resolve(process.argv[1]) : '';
+if (entree === fichierCourant || entree === dirname(fichierCourant)) {
+  demarrer();
+}
+
+/**
+ * Lit un fichier KEY=valeur (server/.env). Une variable déjà définie dans le shell
+ * (par exemple $env:OPENROUTESERVICE_API_KEY) est prioritaire et n'est pas remplacée.
+ */
+function chargerFichierEnv(chemin, env = process.env) {
+  if (!existsSync(chemin)) return;
+  for (const ligne of readFileSync(chemin, 'utf8').split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(ligne);
+    if (!m) continue;
+    const valeur = m[2].replace(/^(["'])(.*)\1$/, '$2');
+    if (env[m[1]] === undefined) env[m[1]] = valeur;
+  }
+}
+
+function demarrer() {
+  chargerFichierEnv(join(dirname(fichierCourant), '.env'));
   const port = Number(process.env.PORT ?? 3000);
   const hote = process.env.HOST ?? '127.0.0.1';
-  if (!cleApi()) {
-    console.warn(
-      'ANTHROPIC_API_KEY absente : les routes répondront 503 et l’application utilisera ses réponses locales.',
-    );
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error(`PORT invalide : « ${process.env.PORT} ». Indiquez un nombre entre 1 et 65535.`);
+    process.exit(1);
   }
-  creerServeur().listen(port, hote, () => {
-    console.log(`Assistant transport prêt sur http://${hote}:${port}/api/transport`);
+  if (orsCleApi()) {
+    console.log(`OpenRouteService : ${orsUrlApi()}`);
+  } else {
+    console.warn('OPENROUTESERVICE_API_KEY absente : itinéraires estimés à partir des coordonnées.');
+  }
+  const serveur = creerServeur();
+  serveur.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error(
+        `Le port ${port} est déjà utilisé : une ancienne fenêtre du serveur est encore ouverte.\n` +
+          `Fermez-la (Ctrl+C), puis relancez « node index.js ».\n` +
+          `Pour voir quel programme utilise le port (PowerShell) : netstat -ano | findstr :${port}`,
+      );
+    } else {
+      console.error(`Démarrage impossible : ${e.message}`);
+    }
+    process.exit(1);
+  });
+  serveur.listen(port, hote, () => {
+    console.log(`Serveur transport prêt sur http://${hote}:${port}/api/transport`);
   });
 }
