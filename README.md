@@ -12,7 +12,7 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
 | **Rôles** | Client, Voyageur (`traveller`), Transporteur (`transporter`), Administrateur |
 | **Modules** | 6 dossiers dans `lib/modules/` |
 | **Tests Flutter** | 31 tests dans `test/` (4 fichiers) |
-| **Services IA & API** | Google Gemini 1.5-flash REST API, EmailJS REST API, Serveur transport Node.js (itinéraire OpenRouteService) |
+| **Services IA & API** | Google Gemini 1.5-flash REST API, EmailJS REST API, Serveur transport (itinéraire OpenRouteService) |
 
 ---
 
@@ -68,10 +68,9 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
 - **Commandes client** : Publication de commandes de transport. Une commande est proposée automatiquement aux trajets compatibles : même jour, places disponibles et budget total (prix × passagers) respecté.
 - **Mises en relation** : Proposition de voyageurs par les transporteurs et masquage des coordonnées jusqu'à acceptation.
 - **Réservations** : Accepter une proposition crée une réservation et refuse les autres propositions de la même commande. Le voyageur ne peut annuler qu'au moins 24 h avant le départ, avec un motif ; le transporteur annule également avec un motif. Un historique est tenu pour chaque réservation.
-- **Itinéraire & carte** : Distance et durée routières entre deux villes, calculées par OpenRouteService via le serveur `server/`. Sans clé ou si le service est indisponible, une estimation est affichée. Un tracé A → B est dessiné dans la feuille d'itinéraire, sans fond de carte.
-- **Actualisation** : Les listes se rafraîchissent toutes les 10 secondes et au retour dans l'application.
-- **Serveur** : dans le dossier `server`, lancer `node index.js`. La clé OpenRouteService se met dans `server/.env` (voir `server/README.md`).
-- Le module ne comprend plus de QR code, d'assistant IA ni de météo.
+- **Itinéraire ** : Distance et durée routières entre deux villes, calculées par OpenRouteService via le serveur `server/`. Sans clé ou si le service est indisponible, une estimation est affichée. Un tracé A → B est dessiné dans la feuille d'itinéraire, sans fond de carte.
+
+
 
 ### 2.4 Location de voiture (`location` – Roua Dhafer)
 - **Flotte & Réservations** : Gestion des véhicules et réservation par plage de dates avec contrôle anti-chevauchement.
