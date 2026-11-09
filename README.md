@@ -8,13 +8,15 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
 | :--- | :--- |
 | **Version de l'application** | 1.0.0+1 (`pubspec.yaml`) |
 | **Framework** | Flutter, Dart ^3.5.0, Material 3 |
-| **Base de données** | SQLite locale, fichier `travel_platform.db`, version de schéma 1, 16 tables |
+| **Base de données** | SQLite locale, fichier `travel_platform.db`, version de schéma 5, 31 tables |
 | **Rôles** | Client, Voyageur (`traveller`), Transporteur (`transporter`), Administrateur |
 | **Modules** | 6 dossiers dans `lib/modules/` |
-| **Tests Flutter** | 31 tests dans `test/` (4 fichiers) |
-| **Services IA & API** | Google Gemini 1.5-flash REST API, EmailJS REST API, Serveur IA Node.js (Claude Haiku) |
+| **Tests** | 119 tests Flutter dans `test/` (15 fichiers) + 42 tests Node dans `server/test/` |
+| **Services IA & API** | Google Gemini (voyage, location, hébergement), Hugging Face (contrôle des photos), EmailJS, Nominatim (géocodage), serveur Node `server/` (itinéraire OpenRouteService + API REST des actualités) |
 
 ---
+
+> **Branches fusionnées** : fil d'actualité + transporteur + location/hébergement/voyage. Voir `docs/integration.md` (décisions, migration v5, comment tester).
 
 ## Sommaire
 1. Modules et responsables
@@ -40,11 +42,11 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
 
 | Dossier | Module | Responsable | Tables | Routes principales |
 | :--- | :--- | :--- | :--- | :--- |
-| `lib/modules/user` | Comptes, rôles, accueil, actualités, admin | Abdeslem Kessentini | `utilisateur`, `actualite` | `/onboarding`, `/login`, `/signup`, `/home`, `/admin/...` |
+| `lib/modules/user` | Comptes, rôles, accueil, fil d'actualité, messenger, admin | Abdeslem Kessentini | `utilisateur`, `actualite`, `commentaire_actualite`, `reaction_actualite`, `sondage_option`, `sondage_vote`, `participation_actualite`, `notification_fil`, `message_prive`, `historique_post`, `reaction_commentaire`, `partage_post` | `/onboarding`, `/login`, `/signup`, `/home`, `/admin/...` |
 | `lib/modules/voyage` | Voyage & Réservation de Vol (IA & Carte) | Mouhamed Dhia Dridi | `voyage`, `voyage_vol`, `voyage_itineraire` | `/voyage/liste`, `/voyage/nouveau`, `/voyage/detail` |
-| `lib/modules/transporteur` | Transport (commandes, trajets, IA) | Abir Gamoudi | `transporteur`, `reservation_transport`, `commande_transport`, `mise_en_relation` | `/transport/...` |
-| `lib/modules/location` | Location de voiture | Roua Dhafer | `vehicule`, `location_vehicule` | `/location`, `/location/gestion` |
-| `lib/modules/hebergement` | Hébergement | Oussema Mrayah | `hebergement`, `reservation_hebergement` | `/hebergement`, `/hebergement/gestion` |
+| `lib/modules/transporteur` | Transport (commandes, trajets, réservations, itinéraire et carte) | Abir Gamoudi | `transporteur`, `trajet_transport`, `commande_transport`, `mise_en_relation`, `reservation_transport`, `historique_reservation` | `/transport/...` |
+| `lib/modules/location` | Location de voiture | Roua Dhafer | `vehicule`, `location_vehicule`, `blocage_vehicule` | `/location`, `/location/gestion` |
+| `lib/modules/hebergement` | Hébergement | Oussema Mrayah | `hebergement`, `reservation_hebergement`, `blocage_hebergement` | `/hebergement`, `/hebergement/gestion` |
 | `lib/modules/forum` | Forum et avis | Sirine Hamzaoui | `forum_sujet`, `forum_reponse`, `avis` | `/forum`, `/forum/avis` |
 
 ---
@@ -54,7 +56,9 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
 ### 2.1 Comptes, accueil et administration (`user` – Abdeslem Kessentini)
 - **Démarrage** : écran Splash (~1,4 s), puis parcours d'accueil en 3 écrans si aucune session n'est ouverte.
 - **Inscription & Connexion** : rôles Client, Voyageur et Transporteur. Mot de passe haché avec sel aléatoire.
-- **Administration** : publication/suppression d'actualités, gestion de la liste des utilisateurs.
+- **Administration** : gestion de la liste des utilisateurs et des actualités.
+- **Fil d'actualité commun** : tout utilisateur connecté publie (texte, photo, sondage, annonce avec « Participer »), réagit (6 réactions), commente et répond, partage, épingle ses posts ; il ne modifie ou supprime que ses propres contenus (règle appliquée dans le SQL). Notifications (cloche), historique des modifications, API REST `server/actualite_api.js` avec repli local. Détails : `docs/rapport_fil_actualite.md`.
+- **Messenger** : conversations privées (texte, image, message vocal) et appels audio/vidéo (`docs/guide_messenger.md`). Permissions micro/caméra déclarées pour Android et iOS.
 
 ### 2.2 Voyage (`voyage` – Mouhamed Dhia Dridi)
 - **Moteur de réservation de vols & carte** : Sélection interactive sur carte OpenStreetMap (`flutter_map`) avec pins de tarifs par destination. Sélection multi-classes (**Économique**, **Affaires**, **Première**) avec calcul dynamique du coût et ajustement automatique du budget.
@@ -64,9 +68,11 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
 - **Stockage hors-ligne** : Persistance complète SQLite (`voyage`, `voyage_vol`, `voyage_itineraire`).
 
 ### 2.3 Transport (`transporteur` – Abir Gamoudi)
-- **Transporteurs & Trajets** : Fiches de transporteurs (Bus, Train, Avion, Bateau, Covoiturage) et recherche de trajets triés par date/prix.
-- **Commandes client & IA** : Publication de commandes de transport, assistant IA d'analyse de texte libre (Claude Haiku) et classement automatique des candidats voyageurs.
+- **Transporteurs & Trajets** : Fiches de transporteurs (Bus, Train, Avion, Bateau, Covoiturage), création, modification et duplication des trajets, recherche triée par date ou prix.
+- **Commandes client** : Publication de commandes de transport. Une commande est proposée automatiquement aux trajets compatibles : même jour, places disponibles et budget total (prix × passagers) respecté.
 - **Mises en relation** : Proposition de voyageurs par les transporteurs et masquage des coordonnées jusqu'à acceptation.
+- **Réservations** : Accepter une proposition crée une réservation et refuse les autres propositions de la même commande. Le voyageur ne peut annuler qu'au moins 24 h avant le départ, avec un motif ; le transporteur annule également avec un motif. Un historique est tenu pour chaque réservation.
+- **Itinéraire ** : Distance et durée routières entre deux villes, calculées par OpenRouteService via le serveur `server/`. Sans clé ou si le service est indisponible, une estimation est affichée. Un tracé A → B est dessiné dans la feuille d'itinéraire, sans fond de carte.
 
 ### 2.4 Location de voiture (`location` – Roua Dhafer)
 - **Flotte & Réservations** : Gestion des véhicules et réservation par plage de dates avec contrôle anti-chevauchement.
@@ -86,4 +92,4 @@ Projet 5SAE3 – ESPRIT. Application mobile de voyage organisée autour du voyag
                                   │
                                   ├──► VoyageIaService ──────► Google Gemini API
                                   ├──► EmailService ─────────► EmailJS API
-                                  └──► ApiService ───────────► Serveur IA (Claude)
+                                  └──► ApiService ───────────► Serveur Node (itinéraire OpenRouteService, API actualités)
