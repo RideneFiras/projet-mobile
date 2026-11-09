@@ -1,36 +1,34 @@
-# Serveur IA du module transporteur
+# Serveur du module transporteur
 
-Ce serveur applicatif exécute les trois tâches IA d'Abir Gamoudi (cahier des charges, §7.2) :
+Ce serveur applicatif fournit l'itinéraire routier d'un trajet à l'application Flutter. Il n'appelle aucun modèle d'IA.
 
-| Route | Tâche | Entrée | Sortie |
+| Route | Rôle | Entrée | Sortie |
 |---|---|---|---|
-| `POST /api/transport/interpreter-commande` | Interprétation de commande | `texte`, `date_reference` | `depart`, `arrivee`, `date`, `budget` |
-| `POST /api/transport/classer-voyageurs` | Classement des voyageurs | `depart`, `arrivee`, `date`, `candidats` | liste `{voyageur_id, score, raison}` triée |
-| `POST /api/transport/resumer-trajet` | Résumé d'un trajet | `depart`, `arrivee`, `date`, `prix`, `statut`, `transporteur` | `{resume}` |
-
-Le modèle est `claude-haiku-5-5`, appelé via l'API Messages d'Anthropic. Le serveur n'envoie jamais `temperature`, `top_p` ni `top_k`.
+| `POST /api/transport/itineraire` | Itinéraire routier d'un trajet | `depart`, `arrivee` | `recommande` (avec `trace`, liste de `[lat, lon]` pour la carte), `alternatives`, `points` (`depart`, `arrivee` en `[lat, lon]`), `source` (`openrouteservice` ou `estimation`) |
+| `GET /api/transport/sante` | État du serveur, sans afficher de secret | — | `statut`, `openrouteservice` |
 
 ## Règles appliquées
 
-- **Clé dans l'environnement uniquement** : `ANTHROPIC_API_KEY`. Elle n'est ni dans le code, ni dans l'application, ni dans les journaux.
-- **Appels depuis le serveur uniquement** : l'application Flutter ne contacte jamais le modèle.
-- **Validation des entrées** : une entrée incorrecte renvoie 400, sans appel au modèle.
-- **Validation des sorties** : seul le JSON attendu est renvoyé. Les identifiants de voyageurs inconnus sont ignorés, les scores sont bornés à 0-100, les dates impossibles sont mises à `null`.
-- **Données minimales** : le classement n'envoie au modèle que l'identifiant et les voyages d'un voyageur, sans nom ni contact.
-- **Prix non calculés par le modèle** : le prix est transmis tel quel, et le résumé ne doit pas le modifier.
-- **Repli côté application** : sans clé (503), en erreur (502) ou en cas de délai, l'application utilise ses règles locales. L'utilisateur n'est jamais bloqué.
+- **Clé dans `server/.env`** (ligne `OPENROUTESERVICE_API_KEY=`), fichier exclu de Git. Une variable d'environnement définie dans PowerShell est prioritaire. Elle n'est ni dans le code, ni dans l'application, ni dans les journaux.
+- **Validation des entrées** : une entrée incorrecte renvoie 400, sans appel externe.
+- **Erreurs externes neutres** : si OpenRouteService échoue, l'application reçoit un message sans détail technique (503). Le détail reste dans le journal du serveur.
+- **Cache temporaire** : géocodage 24 h, itinéraire 6 h.
+- **Sans clé OpenRouteService** : l'itinéraire est estimé à partir des coordonnées.
 
 ## Lancer le serveur (Windows, PowerShell)
 
-Prérequis : Node.js 18.17 ou plus récent (version LTS recommandée).
+Prérequis : Node.js 18.17 ou plus récent (version LTS recommandée). Aucun paquet à installer.
 
 ```powershell
-cd C:\Users\ABIR\Projects\projet_mobile\server
-$env:ANTHROPIC_API_KEY = "sk-ant-..."   # votre clé, saisie à chaque session, jamais dans un fichier
+cd C:\Users\ABIR\Downloads\projet-mobile-gestion-voyage\server
 node index.js
 ```
 
-Le serveur écoute sur `http://127.0.0.1:3000`. L'émulateur Android atteint ce poste à l'adresse `10.0.2.2:3000`, qui correspond déjà à `ApiService.baseUrl`.
+Laissez cette fenêtre ouverte pendant l'utilisation de l'application. Le serveur écoute sur `http://127.0.0.1:3000`. L'émulateur Android atteint ce poste à l'adresse `10.0.2.2:3000`, qui correspond déjà à `ApiService.baseUrl`.
+
+**Mise à jour automatique** : `npm run dev` lance le même serveur, mais le relance seul à chaque modification de ses fichiers, y compris `.env`. Après avoir collé la clé dans `.env` et enregistré, attendez la ligne `Restarting 'index.js'` : aucun Ctrl+C n'est nécessaire.
+
+Vérification : ouvrez `http://127.0.0.1:3000/api/transport/sante` dans un navigateur. Une réponse `{"statut":"ok",...}` confirme que le serveur tourne.
 
 Pour un téléphone réel sur le même Wi-Fi :
 
@@ -41,22 +39,32 @@ node index.js
 
 Il faut alors changer `ApiService.baseUrl` dans l'application pour l'adresse IP locale du PC (par exemple `http://192.168.1.10:3000/api`). Le serveur n'a pas d'authentification : ne l'exposez pas sur un réseau que vous ne contrôlez pas.
 
-Sans clé, le serveur démarre quand même et répond 503. L'application fonctionne alors avec ses règles locales.
+## Dépannage de l'itinéraire
+
+Le message affiché dans l'application indique la cause :
+
+- **« Serveur injoignable »** : le serveur n'est pas lancé. Lancez `node index.js` dans le dossier `server`, puis ouvrez `http://127.0.0.1:3000/api/transport/sante`.
+- **« Itinéraire introuvable sur le serveur »** : une ancienne version du serveur répond encore sur le port 3000. Fermez son ancienne fenêtre (Ctrl+C), puis relancez `node index.js`.
+- **« Le port 3000 est déjà utilisé »** (dans le terminal) : une autre fenêtre du serveur est ouverte. Fermez-la. Pour voir quel programme utilise le port : `netstat -ano`, puis cherchez `:3000` dans la liste.
+- **« ville inconnue (...) »** : sans clé OpenRouteService, seules les villes de la liste intégrée sont reconnues. Ajoutez la clé, ou choisissez une ville de la liste.
+- **« Service d'itinéraire indisponible : distance et durée estimées »** : OpenRouteService a refusé la demande ou ne répond pas. La cause est écrite dans la fenêtre du serveur, par exemple `a refusé la requête (HTTP 403) : vérifiez la clé`. Vérifiez la clé, ou régénérez-la si elle a été partagée.
+
+Sans `npm run dev`, le serveur ne relit pas le code ni `.env` : arrêtez-le (Ctrl+C), puis relancez-le.
 
 ## Tests
 
 ```powershell
-cd C:\Users\ABIR\Projects\projet_mobile\server
+cd C:\Users\ABIR\Downloads\projet-mobile-gestion-voyage\server
 npm test
 ```
 
-Les tests utilisent un faux service Anthropic local : aucun appel réseau réel et aucune clé nécessaire. Ils vérifient la validation, le format de la requête (modèle, en-têtes, absence de `temperature`/`top_p`/`top_k`), le filtrage des identifiants inconnus, le fait que noms et contacts ne partent pas vers le modèle, et les codes 400, 404, 405, 502 et 503.
+L'itinéraire est testé avec un faux `fetch` : aucun appel à OpenRouteService, et aucune clé n'est nécessaire.
 
 ## Variables d'environnement
 
 | Variable | Obligatoire | Défaut | Rôle |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | oui, pour l'IA | — | Clé API Anthropic |
+| `OPENROUTESERVICE_API_KEY` | non | — | Clé gratuite OpenRouteService : itinéraires routiers réels. Sans elle, distance estimée |
+| `OPENROUTESERVICE_URL` | non | `https://api.openrouteservice.org` | Base de l'API OpenRouteService, à changer si le service migre |
 | `PORT` | non | `3000` | Port d'écoute |
 | `HOST` | non | `127.0.0.1` | Interface d'écoute (`0.0.0.0` pour un téléphone réel) |
-| `ANTHROPIC_BASE_URL` | non | `https://api.anthropic.com` | URL de base (tests, proxy d'entreprise) |

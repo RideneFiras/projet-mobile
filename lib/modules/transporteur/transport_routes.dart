@@ -10,6 +10,7 @@ class TransportRoutes {
   static const String relations = '/transport/relations';
   static const String reservations = '/transport/reservations';
   static const String voyageur = '/transport/voyageur';
+  static const String transporteurs = '/transport/transporteurs';
 
   /// Chemin de l'écran associé à la tuile [titre], ou null si la tuile
   /// n'appartient pas au module transporteur.
@@ -20,6 +21,7 @@ class TransportRoutes {
         'Mises en relation' => relations,
         'Réservations' => reservations,
         'Transport' => voyageur,
+        'Mon profil transporteur' => transporteurs,
         _ => null,
       };
 }

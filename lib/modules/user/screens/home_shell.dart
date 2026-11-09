@@ -63,7 +63,7 @@ class _HomeShellState extends State<HomeShell> {
             utilisateur: u,
             voirActualites: () => setState(() => _onglet = 1),
           ),
-          const ActualitesTab(),
+          ActualitesTab(utilisateur: u),
           ProfilTab(
             utilisateur: u,
             onModifie: (nouveau) => setState(() => _utilisateur = nouveau),

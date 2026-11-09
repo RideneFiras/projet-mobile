@@ -77,6 +77,25 @@ class UserRepository {
     return Utilisateur.fromMap(rows.first);
   }
 
+  /// Photo de profil (base64), ou null pour retirer la photo.
+  Future<void> definirPhoto(int userId, String? photoBase64) async {
+    final db = await _db.database;
+    await db.update(
+      'utilisateur',
+      {'photo': photoBase64},
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
+  }
+
+  /// Tous les comptes (pour démarrer une conversation messenger).
+  Future<List<Utilisateur>> tousLesUtilisateurs() async {
+    final db = await _db.database;
+    final rows = await db.query('utilisateur',
+        orderBy: 'role, prenom COLLATE NOCASE, nom COLLATE NOCASE');
+    return rows.map(Utilisateur.fromMap).toList();
+  }
+
   /// L'e-mail et le rôle ne sont pas modifiables.
   Future<void> mettreAJourProfil(Utilisateur u) async {
     final db = await _db.database;
@@ -88,10 +107,17 @@ class UserRepository {
     );
   }
 
-  Future<List<Actualite>> actualites({int? limite}) async {
+  /// Fil commun : toutes les actualités, avec le nom et la photo de
+  /// l'auteur (jointure avec `utilisateur`, comme Facebook).
+  Future<List<Actualite>> actualites({int? limite, Role? role}) async {
     final db = await _db.database;
-    final rows = await db.query('actualite',
-        orderBy: 'date_publication DESC, id DESC', limit: limite);
+    final rows = await db.rawQuery('''
+      SELECT a.*, u.prenom || ' ' || u.nom AS auteur_nom, u.photo AS auteur_photo, u.role AS auteur_role
+      FROM actualite a
+      LEFT JOIN utilisateur u ON u.id = a.auteur_id
+      ORDER BY a.epingle DESC, a.date_publication DESC, a.id DESC
+      LIMIT ?
+    ''', [limite ?? -1]);
     return rows.map(Actualite.fromMap).toList();
   }
 }

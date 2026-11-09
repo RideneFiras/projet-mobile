@@ -1,8 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/dates.dart';
+import '../../../core/widgets/ui_kit.dart';
 import '../actualite.dart';
+import '../actualite_fil.dart';
 import '../role.dart';
 import '../utilisateur.dart';
 
@@ -36,10 +40,15 @@ class EnTeteAccueil extends StatelessWidget {
               CircleAvatar(
                 radius: 22,
                 backgroundColor: admin ? AppColors.orange : AppColors.tealLight,
-                child: Text(utilisateur.initiales,
-                    style: TextStyle(
-                        color: admin ? AppColors.navy : AppColors.teal,
-                        fontWeight: FontWeight.w800)),
+                backgroundImage: utilisateur.photo == null
+                    ? null
+                    : MemoryImage(base64Decode(utilisateur.photo!)),
+                child: utilisateur.photo == null
+                    ? Text(utilisateur.initiales,
+                        style: TextStyle(
+                            color: admin ? AppColors.navy : AppColors.teal,
+                            fontWeight: FontWeight.w800))
+                    : null,
               ),
             ],
           ),
@@ -212,24 +221,95 @@ class CarteActualite extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.navy.withOpacity(0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(dateCourte(actualite.datePublication),
-              style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.grey,
-                  fontWeight: FontWeight.w600)),
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                    color: AppColors.teal, shape: BoxShape.circle),
+                child: actualite.auteurPhoto == null
+                    ? Text(
+                        (actualite.auteurNom ?? '?').split(' ').first.isEmpty
+                            ? '?'
+                            : (actualite.auteurNom ?? '?').split(' ').first[0],
+                        style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800),
+                      )
+                    : ClipOval(
+                        child: Image.memory(
+                          base64Decode(actualite.auteurPhoto!),
+                          width: 28,
+                          height: 28,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(actualite.auteurNom ?? 'Travel Platform',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w800)),
+                        ),
+                        if (actualite.auteurRole != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.tealLight,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              Role.depuis(actualite.auteurRole!).libelle,
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.teal),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    Text(dateCourte(actualite.datePublication),
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.grey)),
+                  ],
+                ),
+              ),
+              Pastille(libelle: actualite.categorie.libelle, valeur: 'valide'),
+            ],
+          ),
           const SizedBox(height: 4),
           Text(actualite.titre,
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
-          Text(actualite.contenu,
-              maxLines: complete ? null : 1,
-              overflow: complete ? null : TextOverflow.ellipsis,
+          Text(complete ? actualite.contenu : FilActualites.extrait(actualite.contenu),
+              maxLines: complete ? null : 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 14, color: AppColors.grey)),
         ],
       ),

@@ -27,11 +27,12 @@ class ApiService {
     return _traiter(res);
   }
 
-  Future<dynamic> post(String endpoint, Map<String, dynamic> body) async {
+  Future<dynamic> post(String endpoint, Map<String, dynamic> body,
+      {Duration? timeout}) async {
     final res = await http
         .post(Uri.parse('$baseUrl$endpoint'),
             headers: _headers, body: jsonEncode(body))
-        .timeout(_timeout);
+        .timeout(timeout ?? _timeout);
     return _traiter(res);
   }
 

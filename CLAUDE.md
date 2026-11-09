@@ -11,9 +11,11 @@ dépende de VS Code (pas de chemin absolu, pas de configuration propre à l'IDE 
 ## 1. Stack et commandes
 
 - Flutter, Dart `^3.5.0`, Material 3. Base locale SQLite (`sqflite`) : fichier `travel_platform.db`.
-- **Version actuelle du schéma : 4** (`lib/core/database/database_helper.dart`).
+- **Version actuelle du schéma : 5** (`lib/core/database/database_helper.dart`).
   Les clés étrangères sont désactivées pendant `onUpgrade` (reconstruction de tables en v4)
-  et réactivées dans `onOpen`.
+  et réactivées dans `onOpen`. Les migrations (`_migrerLocation`, `_migrerHebergement`,
+  `_migrerTransporteur`) testent la STRUCTURE des tables, pas seulement le numéro :
+  voir `docs/integration.md`.
 - Packages présents : `sqflite`, `sqflite_common_ffi` (tests), `http`, `flutter_map` 7.0.2,
   `latlong2`, `shared_preferences`, `path`, `path_provider` (contrat PDF), `flutter_lints` 5.
 - Commandes à lancer après CHAQUE fonctionnalité, dans cet ordre :
@@ -43,9 +45,9 @@ lib/
                validators, json_listes), widgets/ (ui_kit, galerie_photos, carte_emplacement),
                routes/, theme/ (AppColors : teal #0F7B83, orange #F68B3F)
   modules/
-    user/          comptes, rôles, admin, actualités   (Abdeslem Kessentini)
+    user/          comptes, rôles, admin, fil d'actualité, messenger (Abdeslem Kessentini)
     voyage/        voyages, vols, itinéraire IA Gemini  (Mouhamed Dhia Dridi)
-    transporteur/  transport + serveur IA Node          (Abir Gamoudi)
+    transporteur/  transport (trajets, itinéraire) + serveur Node  (Abir Gamoudi)
     location/      location de véhicules                (Roua Dhafer)
     hebergement/   hébergement                          (Oussema Mrayah)
     forum/         forum + table avis                   (Sirine Hamzaoui)
@@ -66,9 +68,11 @@ Les écrans n'écrivent jamais de SQL. Les services réseau sont des classes à 
 2. **Périmètre** : ne modifie que le module sur lequel je te demande de travailler.
    `lib/core/` et `pubspec.yaml` : seulement si nécessaire, en me le signalant.
    Ne touche jamais aux autres modules ni à `lib/modules/voyage/email_service.dart`.
-3. **Schéma** : toute modification = nouvelle version de base (prochaine : **5**).
-   - Ajoute `locationMigrationV5` / `hebergementMigrationV5` (ALTER TABLE ... ADD COLUMN avec
-     DEFAULT, ou CREATE TABLE IF NOT EXISTS), appelées dans `onUpgrade` quand `ancienne < 5`.
+3. **Schéma** : toute modification = nouvelle version de base (prochaine : **6** ; la v5 est
+   l'intégration des branches fil d'actualité + transporteur).
+   - Ajoute `locationMigrationV6` / `hebergementMigrationV6` (ALTER TABLE ... ADD COLUMN avec
+     DEFAULT, ou CREATE TABLE IF NOT EXISTS), appelées dans `_migrerLocation` /
+     `_migrerHebergement` avec un test de présence de colonne (comme pour v2 à v4).
    - Pour modifier une contrainte CHECK : reconstruire la table comme `hebergementMigrationV4`.
    - Mets AUSSI à jour les `CREATE TABLE` de `locationTables` / `hebergementTables`.
    - Ne casse jamais les données existantes ; ajoute un test de migration.
@@ -88,7 +92,7 @@ Les écrans n'écrivent jamais de SQL. Les services réseau sont des classes à 
    puis résume (fichiers modifiés, migration, comment tester à la main en 5 étapes).
    Propose un message de commit, mais ne fais pas de commit ni de push sans que je le demande.
 
-## 4. État actuel (version 4 — déjà fait, ne pas refaire)
+## 4. État actuel (version 5 — déjà fait, ne pas refaire)
 
 ### Commun (`lib/core/`)
 - `services/` : `GeminiService` (JSON, 10 s, IaException), `HuggingFaceService` (vision),
@@ -139,7 +143,7 @@ Les écrans n'écrivent jamais de SQL. Les services réseau sont des classes à 
 - Tout nouveau package : accord du groupe + permissions Android.
 
 ## 6. Points connus à ne pas oublier
-- `README.md` s'arrête à la section 3 (sections 4 à 16 manquantes).
+- `README.md` s'arrête à la section 3 (sections 4 à 16 manquantes). `docs/integration.md` décrit la fusion des branches.
 - `CONTRIBUTING.md` et `docs/repartition_modules.md` décrivent encore l'ancien template.
 - `core/utils/dates.dart` : `nombreDeJours` utilise `difference().inDays` en heure locale
   (peut perdre un jour au passage heure d'été/hiver) ; la location utilise

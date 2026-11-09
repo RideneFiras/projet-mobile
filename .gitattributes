@@ -1,0 +1,18 @@
+# Fins de ligne : LF dans le dépôt, quel que soit le poste (Windows / Linux / macOS).
+# Évite les faux « fichier modifié » quand l'équipe travaille sous Windows avec
+# core.autocrlf différent d'un poste à l'autre.
+* text=auto
+
+# Scripts Windows : toujours CRLF à l'extraction pour que cmd / PowerShell les exécutent.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaires : jamais convertis.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wasm binary
+*.jks binary
+*.keystore binary

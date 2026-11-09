@@ -2,11 +2,12 @@
   "name": "projet-mobile-serveur-ia",
   "version": "1.0.0",
   "private": true,
-  "description": "Serveur applicatif des fonctions IA du module transporteur (Claude Haiku 5.5).",
+  "description": "Serveur applicatif du module transporteur : itinéraire d'un trajet.",
   "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "dev": "node --watch-path=. index.js",
     "test": "node --test"
   },
   "engines": {

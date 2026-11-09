@@ -1,177 +1,300 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/widgets/travel_button.dart';
-import '../../../core/widgets/travel_field.dart';
-import '../models/reservation_transport.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/dates.dart';
+import '../../../core/widgets/ui_kit.dart';
+import '../models/trajet_transport.dart';
 import '../models/transporteur.dart';
 import '../transport_format.dart';
 import '../transport_repository.dart';
+import '../transport_routes.dart';
 import '../transport_widgets.dart';
 
-/// Création ou modification d'un trajet proposé (table reservation_transport).
-/// Règle du cahier des charges : départ différent de l'arrivée (contrôlé ici
-/// et par la base de données).
+/// Création ou modification d'un trajet. Le statut ne se change pas ici :
+/// il se modifie depuis la liste des trajets, selon les transitions autorisées.
 class TrajetFormScreen extends StatefulWidget {
-  final ReservationTransport? trajet;
+  final int utilisateurId;
+  final TrajetTransport? trajet;
 
-  const TrajetFormScreen({super.key, this.trajet});
+  const TrajetFormScreen({super.key, required this.utilisateurId, this.trajet});
 
   @override
   State<TrajetFormScreen> createState() => _TrajetFormScreenState();
 }
 
 class _TrajetFormScreenState extends State<TrajetFormScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final _cle = GlobalKey<FormState>();
   final _repo = TransportRepository();
-  late final _depart = TextEditingController(text: widget.trajet?.depart);
-  late final _arrivee = TextEditingController(text: widget.trajet?.arrivee);
-  late final _prix = TextEditingController(
-      text: widget.trajet?.prix.toStringAsFixed(2));
-  late final Future<List<Transporteur>> _fiches = _repo.transporteurs();
-
-  late DateTime? _date = widget.trajet?.dateDepart;
-  late StatutTrajet _statut = widget.trajet?.statut ?? StatutTrajet.enAttente;
-  int? _transporteurId;
+  final _depart = TextEditingController();
+  final _adresseDepart = TextEditingController();
+  final _destination = TextEditingController();
+  final _adresseArrivee = TextEditingController();
+  final _heureDepart = TextEditingController();
+  final _heureArrivee = TextEditingController();
+  final _prix = TextEditingController();
+  final _places = TextEditingController();
+  final _arrets = TextEditingController();
+  DateTime? _jourDepart;
+  DateTime? _jourArrivee;
+  String _type = Transporteur.types.first;
   String? _erreurDate;
-  bool _chargement = false;
-
-  bool get _modification => widget.trajet != null;
+  int? _transporteurId;
+  bool _charge = false;
+  bool _occupe = false;
 
   @override
   void initState() {
     super.initState();
-    _transporteurId = widget.trajet?.transporteurId;
+    final t = widget.trajet;
+    final maintenant = DateTime.now();
+    final depart = t?.dateDepart ??
+        DateTime(maintenant.year, maintenant.month, maintenant.day + 1, 9);
+    final arrivee = t?.dateArriveeEstimee ?? depart.add(const Duration(hours: 2));
+    _depart.text = t?.villeDepart ?? '';
+    _adresseDepart.text = t?.adresseDepart ?? '';
+    _destination.text = t?.destination ?? '';
+    _adresseArrivee.text = t?.adresseArrivee ?? '';
+    _jourDepart = dateJour(depart);
+    _jourArrivee = dateJour(arrivee);
+    _heureDepart.text = TransportFormat.heure(depart);
+    _heureArrivee.text = TransportFormat.heure(arrivee);
+    _prix.text = t == null ? '' : t.prixParPersonne.toStringAsFixed(2);
+    _places.text = '${t?.placesTotales ?? 4}';
+    _arrets.text = t?.arrets ?? '';
+    _type = t?.typeTransport ?? Transporteur.types.first;
+    if (t != null) {
+      _transporteurId = t.transporteurId;
+      _charge = true;
+    } else {
+      _chargerProfil();
+    }
   }
 
   @override
   void dispose() {
-    for (final c in [_depart, _arrivee, _prix]) {
+    for (final c in [
+      _depart,
+      _adresseDepart,
+      _destination,
+      _adresseArrivee,
+      _heureDepart,
+      _heureArrivee,
+      _prix,
+      _places,
+      _arrets,
+    ]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  Future<void> _enregistrer() async {
-    FocusScope.of(context).unfocus();
-    final dateChangee = _date != widget.trajet?.dateDepart;
-    setState(() => _erreurDate =
-        (!_modification || dateChangee) ? TransportFormat.validerDateFuture(_date) : null);
-    if (!_formKey.currentState!.validate() || _erreurDate != null) return;
-
-    setState(() => _chargement = true);
-    final trajet = ReservationTransport(
-      id: widget.trajet?.id,
-      depart: _depart.text,
-      arrivee: _arrivee.text,
-      dateDepart: _date!,
-      prix: TransportFormat.depuisCentimes(TransportFormat.parserMontant(_prix.text) ?? 0),
-      statut: _statut,
-      transporteurId: _transporteurId,
-    );
-    if (_modification) {
-      await _repo.modifierTrajet(trajet);
-    } else {
-      await _repo.creerTrajet(trajet);
-    }
+  Future<void> _chargerProfil() async {
+    final profil = await _repo.profilDe(widget.utilisateurId);
     if (!mounted) return;
-    montrerMessage(context, _modification ? 'Trajet mis à jour' : 'Trajet ajouté');
+    setState(() {
+      _transporteurId = profil?.id;
+      _charge = true;
+    });
+  }
+
+  Future<void> _enregistrer() async {
+    final uid = widget.utilisateurId;
+    final transporteurId = widget.trajet?.transporteurId ?? _transporteurId;
+    final erreurDate = TransportFormat.validerDateFuture(_jourDepart) ??
+        (_jourArrivee == null ? "Date d'arrivée obligatoire" : null);
+    setState(() => _erreurDate = erreurDate);
+    if (!_cle.currentState!.validate() || erreurDate != null || transporteurId == null) {
+      return;
+    }
+    final dep = TransportFormat.combiner(_jourDepart, _heureDepart.text);
+    final arr = TransportFormat.combiner(_jourArrivee, _heureArrivee.text);
+    final centimes = TransportFormat.parserMontant(_prix.text);
+    final places = TransportFormat.parserEntier(_places.text);
+    if (dep == null || arr == null || centimes == null || places == null) return;
+    if (!arr.isAfter(dep)) {
+      afficherMessage(context, "L'arrivée doit être après le départ", erreur: true);
+      return;
+    }
+    final t = widget.trajet;
+    if (t == null && dep.isBefore(DateTime.now())) {
+      afficherMessage(context, "L'heure de départ est déjà passée", erreur: true);
+      return;
+    }
+    setState(() => _occupe = true);
+    final trajet = TrajetTransport(
+      id: t?.id,
+      transporteurId: transporteurId,
+      villeDepart: _depart.text,
+      destination: _destination.text,
+      adresseDepart: _adresseDepart.text,
+      adresseArrivee: _adresseArrivee.text,
+      dateDepart: dep,
+      dateArriveeEstimee: arr,
+      prixParPersonne: TransportFormat.depuisCentimes(centimes),
+      placesTotales: places,
+      typeTransport: _type,
+      arrets: _arrets.text,
+      statut: t?.statut ?? StatutTrajet.planifie,
+      creeLe: t?.creeLe ?? DateTime.now(),
+    );
+    final String? erreur = t == null
+        ? await _repo.creerTrajet(trajet, uid)
+        : await _repo.modifierTrajet(trajet, uid);
+    if (!mounted) return;
+    setState(() => _occupe = false);
+    if (erreur != null) {
+      afficherMessage(context, erreur, erreur: true);
+      return;
+    }
+    afficherMessage(context, t == null ? 'Trajet ajouté' : 'Trajet modifié');
     Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
-    return EcranTransport(
-      titre: _modification ? 'Modifier le trajet' : 'Nouveau trajet',
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TravelField(
-                label: 'Départ',
-                hint: 'Tunis',
-                icone: Icons.trip_origin,
-                controller: _depart,
-                validator: (v) => TransportFormat.validerVille(v, champ: 'Le départ'),
-              ),
-              const SizedBox(height: 14),
-              TravelField(
-                label: 'Arrivée',
-                hint: 'Sfax',
-                icone: Icons.flag_outlined,
-                controller: _arrivee,
-                validator: (v) =>
-                    TransportFormat.validerTrajet(_depart.text, v) ??
-                    TransportFormat.validerVille(v, champ: "L'arrivée"),
-              ),
-              const SizedBox(height: 14),
-              ChampDate(
-                label: 'Date de départ',
-                valeur: _date,
-                erreur: _erreurDate,
-                premiereDate: DateTime.now(),
-                onChoisie: (d) => setState(() {
-                  _date = d;
-                  _erreurDate = null;
-                }),
-              ),
-              const SizedBox(height: 14),
-              TravelField(
-                label: 'Prix (DT)',
-                hint: '25.00',
-                icone: Icons.payments_outlined,
-                controller: _prix,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) => TransportFormat.validerMontant(v),
-              ),
-              const SizedBox(height: 14),
-              FutureBuilder<List<Transporteur>>(
-                future: _fiches,
-                builder: (context, snap) {
-                  final fiches = snap.data ?? const <Transporteur>[];
-                  return DropdownButtonFormField<int?>(
-                    initialValue: _transporteurId,
-                    decoration: const InputDecoration(
-                      labelText: 'Transporteur',
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                          value: null, child: Text('Non précisé')),
-                      for (final t in fiches)
-                        DropdownMenuItem<int?>(
-                            value: t.id, child: Text('${t.nom} (${t.type})')),
-                    ],
-                    onChanged: (v) => setState(() => _transporteurId = v),
-                  );
-                },
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<StatutTrajet>(
-                initialValue: _statut,
-                decoration: const InputDecoration(
-                  labelText: 'Statut',
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                items: [
-                  for (final s in StatutTrajet.values)
-                    DropdownMenuItem(value: s, child: Text(s.libelle)),
+    final t = widget.trajet;
+    final titre = t == null ? 'Nouveau trajet' : 'Modifier le trajet';
+    if (!_charge) {
+      return EcranModule(
+        titre: titre,
+        corps: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (t == null && _transporteurId == null) {
+      return EcranModule(
+        titre: titre,
+        corps: EtatVideModule(
+          icone: Icons.person_add_alt_1_outlined,
+          titre: "Créez d'abord votre profil",
+          message: 'Un trajet est rattaché à votre profil transporteur.',
+          libelleAction: 'Créer mon profil',
+          onAction: () => Navigator.pushReplacementNamed(
+              context, TransportRoutes.transporteurs),
+        ),
+      );
+    }
+    return EcranModule(
+      titre: titre,
+      corps: Form(
+        key: _cle,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
+            if (t != null) ...[
+              Row(
+                children: [
+                  const Text('Statut : ',
+                      style: TextStyle(color: AppColors.grey, fontWeight: FontWeight.w600)),
+                  Pastille(libelle: t.statut.libelle, valeur: t.statut.valeur),
                 ],
-                onChanged: (v) => setState(() => _statut = v ?? _statut),
               ),
-              const SizedBox(height: 28),
-              TravelButton(
-                texte: _modification ? 'Enregistrer' : 'Ajouter le trajet',
-                chargement: _chargement,
-                onPressed: _enregistrer,
-              ),
+              const SizedBox(height: 14),
             ],
-          ),
+            ChampTexte(
+              controller: _depart,
+              label: 'Ville de départ',
+              icone: Icons.trip_origin,
+              capitalisation: TextCapitalization.words,
+              validateur: (v) => TransportFormat.validerVille(v, champ: 'La ville de départ'),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _adresseDepart,
+              label: 'Adresse exacte de départ (facultatif)',
+              icone: Icons.place_outlined,
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _destination,
+              label: "Ville d'arrivée",
+              icone: Icons.flag_outlined,
+              capitalisation: TextCapitalization.words,
+              validateur: (v) =>
+                  TransportFormat.validerVille(v, champ: "La ville d'arrivée") ??
+                  TransportFormat.validerTrajet(_depart.text, v),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _adresseArrivee,
+              label: "Adresse exacte d'arrivée (facultatif)",
+              icone: Icons.place_outlined,
+            ),
+            const SizedBox(height: 14),
+            ChampDate(
+              label: 'Date de départ',
+              valeur: _jourDepart,
+              erreur: _erreurDate,
+              premiereDate: DateTime.now(),
+              onChoisie: (d) => setState(() {
+                _jourDepart = d;
+                _erreurDate = null;
+              }),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _heureDepart,
+              label: 'Heure de départ (HH:mm)',
+              icone: Icons.schedule,
+              clavier: TextInputType.datetime,
+              validateur: TransportFormat.validerHeure,
+            ),
+            const SizedBox(height: 14),
+            ChampDate(
+              label: "Date d'arrivée estimée",
+              valeur: _jourArrivee,
+              premiereDate: DateTime.now(),
+              onChoisie: (d) => setState(() => _jourArrivee = d),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _heureArrivee,
+              label: "Heure d'arrivée estimée (HH:mm)",
+              icone: Icons.schedule,
+              clavier: TextInputType.datetime,
+              validateur: TransportFormat.validerHeure,
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _prix,
+              label: 'Prix par personne (DT)',
+              icone: Icons.payments_outlined,
+              clavier: const TextInputType.numberWithOptions(decimal: true),
+              validateur: (v) => TransportFormat.validerMontant(v),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _places,
+              label: 'Places proposées',
+              icone: Icons.airline_seat_recline_normal,
+              clavier: TextInputType.number,
+              validateur: (v) =>
+                  TransportFormat.validerEntier(v, champ: 'Le nombre de places', max: 99),
+            ),
+            const SizedBox(height: 14),
+            ChampChoix<String>(
+              label: 'Type de transport',
+              icone: Icons.directions_bus_outlined,
+              valeur: _type,
+              items: [
+                for (final s in Transporteur.types)
+                  DropdownMenuItem<String>(value: s, child: Text(Transporteur.libelleType(s))),
+              ],
+              onChange: (v) => setState(() => _type = v ?? _type),
+            ),
+            const SizedBox(height: 14),
+            ChampTexte(
+              controller: _arrets,
+              label: 'Arrêts intermédiaires (facultatif)',
+              icone: Icons.more_horiz,
+              lignes: 2,
+            ),
+            const SizedBox(height: 24),
+            BoutonPrincipal(
+              libelle: 'Enregistrer',
+              icone: Icons.save_outlined,
+              onPressed: _occupe ? null : _enregistrer,
+            ),
+          ],
         ),
       ),
     );
