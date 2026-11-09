@@ -85,6 +85,9 @@ class DatabaseHelper {
       onOpen: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _creerTables(db);
+        // Base antérieure à l'extension du fil d'actualité : ajoute les
+        // colonnes manquantes au lieu de planter (écran blanc sur Chrome).
+        await _migrerColonnesFil(db);
       },
     );
   }
@@ -166,6 +169,62 @@ class DatabaseHelper {
     // leurs cibles n'existent plus (les identifiants pointeraient vers d'autres lignes).
     if (await _tableExiste(db, 'avis')) {
       await db.delete('avis', where: 'cible_type = ?', whereArgs: ['transport']);
+    }
+  }
+
+  /// Migration légère des colonnes du fil d'actualité (et de la photo de
+  /// profil) : les bases déjà créées (Chrome/IndexedDB, émulateur) via
+  /// CREATE TABLE IF NOT EXISTS ne reçoivent pas les nouvelles colonnes.
+  /// Exécutée à chaque ouverture : ajoute uniquement ce qui manque.
+  Future<void> _migrerColonnesFil(Database db) async {
+    Future<void> assure(String table, Map<String, String> colonnes) async {
+      for (final entree in colonnes.entries) {
+        if (!await _aColonne(db, table, entree.key)) {
+          await db.execute(entree.value);
+        }
+      }
+    }
+
+    await assure('actualite', {
+      'photo': 'ALTER TABLE actualite ADD COLUMN photo TEXT',
+      'epingle': 'ALTER TABLE actualite ADD COLUMN epingle INTEGER NOT NULL DEFAULT 0',
+      'type_post': "ALTER TABLE actualite ADD COLUMN type_post TEXT NOT NULL DEFAULT 'standard'",
+      'date_evenement': 'ALTER TABLE actualite ADD COLUMN date_evenement TEXT',
+      'lieu': 'ALTER TABLE actualite ADD COLUMN lieu TEXT',
+      'audience': "ALTER TABLE actualite ADD COLUMN audience TEXT NOT NULL DEFAULT 'tous'",
+      'categorie': "ALTER TABLE actualite ADD COLUMN categorie TEXT NOT NULL DEFAULT 'general'",
+    });
+    await assure('utilisateur', {
+      'photo': 'ALTER TABLE utilisateur ADD COLUMN photo TEXT',
+    });
+    await assure('reaction_actualite', {
+      'type': "ALTER TABLE reaction_actualite ADD COLUMN type TEXT NOT NULL DEFAULT 'like'",
+    });
+    await assure('commentaire_actualite', {
+      'parent_id': 'ALTER TABLE commentaire_actualite ADD COLUMN parent_id INTEGER',
+    });
+    await assure('message_prive', {
+      'type': "ALTER TABLE message_prive ADD COLUMN type TEXT NOT NULL DEFAULT 'texte'",
+    });
+    // Compte admin de test (debug uniquement) : recréé s'il est absent,
+    // sinon la connexion admin@travel.tn / Admin1234 échoue à jamais.
+    if (kDebugMode) {
+      final deja = await db.rawQuery(
+        "SELECT id FROM utilisateur WHERE email = 'admin@travel.tn' LIMIT 1",
+      );
+      if (deja.isEmpty) {
+        final sel = PasswordHasher.genererSel();
+        await db.insert('utilisateur', {
+          'nom': 'Admin',
+          'prenom': 'Admin',
+          'email': 'admin@travel.tn',
+          'telephone': '+21600000000',
+          'role': 'admin',
+          'mot_de_passe_hash': PasswordHasher.hacher('Admin1234', sel),
+          'sel': sel,
+          'cree_le': DateTime.now().toUtc().toIso8601String(),
+        });
+      }
     }
   }
 

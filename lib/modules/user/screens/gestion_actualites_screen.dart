@@ -109,7 +109,7 @@ class _ContenuActualitesState extends State<_ContenuActualites> {
               children: [
                 EnTeteModule(
                   titre: 'Actualités',
-                  sousTitre: 'Visibles par tous les utilisateurs sur l\'accueil.',
+                  sousTitre: '',
                   icone: Icons.campaign_outlined,
                   indicateurs: [
                     IndicateurEnTete(
@@ -157,6 +157,11 @@ class _ContenuActualitesState extends State<_ContenuActualites> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppColors.grey, fontSize: 14)),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, children: [
+              Pastille(libelle: a.categorie.libelle, valeur: 'valide'),
+              Pastille(libelle: a.audience.libelle, valeur: 'ouverte'),
+            ]),
             const SizedBox(height: 8),
             Row(
               children: [

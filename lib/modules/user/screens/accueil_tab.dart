@@ -179,7 +179,7 @@ class _AccueilTabState extends State<AccueilTab> {
           const SizedBox(height: 12),
           CarteOrange(
             titre: 'Publier une actualité',
-            sousTitre: 'Visible par tous les utilisateurs',
+            sousTitre: '',
             icone: Icons.campaign_outlined,
             onTap: () => _ouvrir(const _Raccourci('Publier une actualité',
                 Icons.campaign_outlined, _user, _abdeslem)),

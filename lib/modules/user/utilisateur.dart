@@ -7,6 +7,8 @@ class Utilisateur {
   final String email;
   final String telephone;
   final Role role;
+  /// Photo de profil encodée en base64 (null = initiales).
+  final String? photo;
   final DateTime creeLe;
 
   const Utilisateur({
@@ -16,6 +18,7 @@ class Utilisateur {
     required this.email,
     required this.telephone,
     required this.role,
+    this.photo,
     required this.creeLe,
   });
 
@@ -34,10 +37,11 @@ class Utilisateur {
         email: m['email'] as String,
         telephone: m['telephone'] as String,
         role: Role.depuis(m['role'] as String),
+        photo: m['photo'] as String?,
         creeLe: DateTime.parse(m['cree_le'] as String),
       );
 
-  Utilisateur copyWith({String? nom, String? prenom, String? telephone}) =>
+  Utilisateur copyWith({String? nom, String? prenom, String? telephone, String? photo, bool effacerPhoto = false}) =>
       Utilisateur(
         id: id,
         nom: nom ?? this.nom,
@@ -45,6 +49,7 @@ class Utilisateur {
         email: email,
         telephone: telephone ?? this.telephone,
         role: role,
+        photo: effacerPhoto ? null : (photo ?? this.photo),
         creeLe: creeLe,
       );
 }

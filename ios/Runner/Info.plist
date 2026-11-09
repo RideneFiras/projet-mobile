@@ -66,5 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Enregistrer des messages vocaux et passer des appels.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Prendre une photo de profil et passer des appels vidéo.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choisir une photo de profil ou de publication.</string>
 </dict>
 </plist>

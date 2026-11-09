@@ -1,12 +1,19 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/travel_button.dart';
 import '../../../core/widgets/travel_field.dart';
+import '../../../core/widgets/ui_kit.dart';
+import '../actualite.dart';
+import '../partage_repository.dart';
 import '../role.dart';
 import '../user_repository.dart';
 import '../utilisateur.dart';
+import '../../../core/widgets/ui_kit.dart';
 import 'widgets_accueil.dart';
 
 /// Profil (UI Kit, page 15) : titre « Mon profil », identité (avatar, nom,
@@ -37,6 +44,41 @@ class _ProfilTabState extends State<ProfilTab> {
   late final _role =
       TextEditingController(text: widget.utilisateur.role.libelle);
   bool _chargement = false;
+  late Future<List<Actualite>> _mesPosts;
+
+  @override
+  void initState() {
+    super.initState();
+    _rechargerPosts();
+  }
+
+  /// Appelé à chaque fois que l'onglet Profil redevient visible
+  /// (IndexedStack) : les posts publiés depuis le fil apparaissent
+  /// immédiatement, sans rouvrir l'app.
+  @override
+  void activate() {
+    super.activate();
+    _rechargerPosts();
+  }
+
+  /// À chaque reconstruction de l parent (changement d'onglet) :
+  /// les posts publiés et partagés depuis le fil apparaissent tout de suite.
+  @override
+  void didUpdateWidget(ProfilTab ancien) {
+    super.didUpdateWidget(ancien);
+    _rechargerPosts();
+  }
+
+  /// Mes posts : enregistrés automatiquement sous mon compte à la publication,
+  /// plus les posts que j'ai partagés (affichés « partagé de X »).
+  void _rechargerPosts() {
+    _mesPosts = UserRepository().actualites().then((liste) async {
+      final mes = liste.where((a) => a.auteurId == widget.utilisateur.id).toList();
+      final ids = await PartageRepository().idsPartages(widget.utilisateur.id!);
+      final partages = liste.where((a) => ids.contains(a.id)).toList();
+      return [...mes, ...partages];
+    });
+  }
 
   @override
   void dispose() {
@@ -61,6 +103,60 @@ class _ProfilTabState extends State<ProfilTab> {
     widget.onModifie(maj);
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Profil enregistré')));
+  }
+
+  /// Choix d'une photo de profil (galerie ou appareil photo), réduite
+  /// puis stockée en base64 dans la colonne `photo` de l'utilisateur.
+  Future<void> _choisirPhoto() async {
+    final selection = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choisir dans la galerie'),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Prendre une photo'),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            if (widget.utilisateur.photo != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: AppColors.danger),
+                title: const Text('Retirer la photo',
+                    style: TextStyle(color: AppColors.danger)),
+                onTap: () => Navigator.pop(ctx, null),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (selection == null) {
+      await UserRepository().definirPhoto(widget.utilisateur.id!, null);
+      if (!mounted) return;
+      widget.onModifie(widget.utilisateur.copyWith(effacerPhoto: true));
+      return;
+    }
+    final fichier = await ImagePicker().pickImage(
+      source: selection ? ImageSource.gallery : ImageSource.camera,
+      maxWidth: 400,
+      maxHeight: 400,
+      imageQuality: 70,
+    );
+    if (fichier == null || !mounted) return;
+    final octets = await fichier.readAsBytes();
+    final base64 = base64Encode(octets);
+    await UserRepository().definirPhoto(widget.utilisateur.id!, base64);
+    if (!mounted) return;
+    widget.onModifie(widget.utilisateur.copyWith(photo: base64));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Photo de profil mise à jour')),
+    );
   }
 
   Future<void> _confirmerDeconnexion() async {
@@ -88,21 +184,59 @@ class _ProfilTabState extends State<ProfilTab> {
     final voyageur = u.role == Role.traveller;
     return Row(
       children: [
-        Container(
-          width: 76,
-          height: 76,
-          alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: AppColors.teal,
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            u.initiales,
-            style: const TextStyle(
-                color: AppColors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.w800),
-          ),
+        Stack(
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: AppColors.teal,
+                shape: BoxShape.circle,
+              ),
+              child: u.photo == null
+                  ? Text(
+                      u.initiales,
+                      style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800),
+                    )
+                  : ClipOval(
+                      child: Image.memory(
+                        base64Decode(u.photo!),
+                        width: 76,
+                        height: 76,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Text(
+                          u.initiales,
+                          style: const TextStyle(
+                              color: AppColors.white,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+            ),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: const BoxDecoration(
+                    color: AppColors.orange, shape: BoxShape.circle),
+                child: IconButton(
+                  tooltip: 'Changer la photo',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.camera_alt,
+                      size: 15, color: AppColors.white),
+                  onPressed: _choisirPhoto,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -230,6 +364,61 @@ class _ProfilTabState extends State<ProfilTab> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 28),
+            const Text('Mes publications',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            FutureBuilder<List<Actualite>>(
+              future: _mesPosts,
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final liste = snap.data!;
+                if (liste.isEmpty) {
+                  return const Text(
+                    'Aucun post pour l’instant.',
+                    style: TextStyle(color: AppColors.grey),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final a in liste)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CarteModule(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (a.auteurId != widget.utilisateur.id)
+                                Text(
+                                  'Partagé de ${a.auteurNom ?? 'quelqu’un'}',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.teal,
+                                      fontWeight: FontWeight.w700),
+                                ),
+                              Text(a.titre,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 15, fontWeight: FontWeight.w800)),
+                              const SizedBox(height: 2),
+                              Text(
+                                a.contenu,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: AppColors.grey, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         ),

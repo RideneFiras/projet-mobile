@@ -24,8 +24,11 @@ import {
   orsCleApi,
   orsUrlApi,
 } from './itineraire.js';
+import { traiterActualites } from './actualite_api.js';
 
 const LIMITE_CORPS = 32 * 1024;
+/** Les posts photo (base64) des actualités ont besoin d'un corps plus grand. */
+const LIMITE_CORPS_PHOTO = 2 * 1024 * 1024;
 
 const ROUTES = new Map([
   ['/api/transport/itineraire', itineraire],
@@ -38,14 +41,14 @@ class ErreurHttp extends Error {
   }
 }
 
-function lireCorps(req) {
+function lireCorps(req, limite = LIMITE_CORPS) {
   return new Promise((resoudre, rejeter) => {
     const morceaux = [];
     let taille = 0;
     let depasse = false;
     req.on('data', (c) => {
       taille += c.length;
-      if (taille > LIMITE_CORPS) {
+      if (taille > limite) {
         depasse = true;
         return;
       }
@@ -65,6 +68,20 @@ function lireCorps(req) {
 
 async function reponsePour(req, chemin, options) {
   try {
+    // API des actualités (module user) : toutes les méthodes HTTP, pas seulement POST.
+    if (chemin === '/api/actualites' || chemin.startsWith('/api/actualites/')) {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const corps = req.method === 'POST' || req.method === 'PUT'
+        ? await lireCorps(req, LIMITE_CORPS_PHOTO)
+        : {};
+      return await traiterActualites({
+        methode: req.method,
+        chemin,
+        requete: url.searchParams,
+        corps,
+        options,
+      });
+    }
     if (chemin === '/api/transport/sante') {
       if (req.method !== 'GET') {
         return { code: 405, corps: { erreur: 'Méthode non autorisée' }, entetes: { Allow: 'GET' } };
@@ -84,6 +101,7 @@ async function reponsePour(req, chemin, options) {
   } catch (e) {
     if (e instanceof ErreurHttp) return { code: e.code, corps: { erreur: e.message } };
     if (e instanceof ErreurValidation) return { code: 400, corps: { erreur: e.message } };
+    if (e?.name === 'ErreurValidation') return { code: 400, corps: { erreur: e.message } };
     if (e instanceof ErreurServiceExterne) {
       // Détail gardé dans le journal du serveur ; l'application reçoit un message neutre.
       console.error(`[externe] ${e.message}`);
@@ -116,8 +134,11 @@ export function creerServeur({
   orsCle = orsCleApi(),
   orsBase = orsUrlApi(),
   cache = new CacheTemporaire(),
+  cle = null,
+  base,
+  magasin,
 } = {}) {
-  const options = { fetchImpl, orsCle, orsBase, cache };
+  const options = { fetchImpl, orsCle, orsBase, cache, cle, base, magasin };
   return http.createServer(async (req, res) => {
     const debut = Date.now();
     const chemin = new URL(req.url ?? '/', 'http://localhost').pathname;
