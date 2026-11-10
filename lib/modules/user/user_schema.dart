@@ -24,4 +24,14 @@ const List<String> userTables = [
     FOREIGN KEY (auteur_id) REFERENCES utilisateur (id) ON DELETE SET NULL
   )
   ''',
+  // Vérification faciale (2FA) : descripteur de 128 nombres en JSON.
+  // Une ligne = la vérification faciale est activée pour ce compte.
+  '''
+  CREATE TABLE IF NOT EXISTS visage_utilisateur (
+    utilisateur_id INTEGER PRIMARY KEY,
+    descripteur TEXT NOT NULL,
+    active_le TEXT NOT NULL,
+    FOREIGN KEY (utilisateur_id) REFERENCES utilisateur (id) ON DELETE CASCADE
+  )
+  ''',
 ];

@@ -7,6 +7,7 @@ import '../../../core/widgets/travel_button.dart';
 import '../../../core/widgets/travel_field.dart';
 import '../../../core/widgets/travel_header.dart';
 import '../user_repository.dart';
+import '../visage/capture_visage.dart';
 
 /// Connexion (UI Kit, page 2 : « Bon retour parmi nous »).
 /// En-tête illustré, feuille blanche qui remonte dessus, lien d'inscription en bas.
@@ -35,15 +36,36 @@ class _LoginScreenState extends State<LoginScreen> {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
     setState(() => _chargement = true);
-    final erreur = await _repo.connecter(_email.text, _mdp.text);
+    final r = await _repo.connexion(_email.text, _mdp.text);
+    String? erreur = r.erreur;
+
+    // Étape 2 : vérification faciale si elle est activée sur ce compte.
+    if (erreur == null && r.visageRequisPour != null) {
+      final capture = await capturerVisage(
+        titre: 'Vérification faciale',
+        sousTitre: 'Étape 2/2 · Regardez la caméra',
+      );
+      if (capture.annulee) {
+        erreur = 'Vérification faciale annulée';
+      } else if (capture.erreur != null) {
+        erreur = capture.erreur;
+      } else {
+        erreur = await _repo.connecterAvecVisage(
+            r.visageRequisPour!, capture.descripteur!);
+      }
+    }
+
     if (!mounted) return;
     setState(() => _chargement = false);
     if (erreur != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(erreur)));
+      _message(erreur);
       return;
     }
     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
   }
+
+  void _message(String texte) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(texte)));
 
   @override
   Widget build(BuildContext context) {
